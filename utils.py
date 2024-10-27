@@ -18,7 +18,17 @@ import numpy as np
 # %matplotlib inline
 from matplotlib import pyplot as plt
 import easyocr
+from paddleocr import PaddleOCR
 reader = easyocr.Reader(['en'])
+paddle_ocr = PaddleOCR(
+    lang='ch',  # ch is actually eng and chinese bilingual model
+    use_angle_cls=False,
+    use_gpu=False,
+    show_log=True,
+    max_batch_size=1024,
+    use_dilation=True,  # improves accuracy
+    det_db_score_mode='slow',  # improves accuracy
+    rec_batch_num=1024)
 import time
 import base64
 
@@ -64,6 +74,7 @@ def get_yolo_model(model_path):
     return model
 
 
+@torch.inference_mode()
 def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_model_processor, prompt=None):
     to_pil = ToPILImage()
     if ocr_bbox:
@@ -84,7 +95,7 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
         else:
             prompt = "The image shows"
 
-    batch_size = 10  # Number of samples per batch
+    batch_size = 2  # Number of samples per batch
     generated_texts = []
     device = model.device
 
@@ -94,10 +105,11 @@ def get_parsed_content_icon(filtered_boxes, ocr_bbox, image_source, caption_mode
             inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt").to(device=device, dtype=torch.float16)
         else:
             inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt").to(device=device)
-        if 'florence' in model.config.name_or_path:
-            generated_ids = model.generate(input_ids=inputs["input_ids"],pixel_values=inputs["pixel_values"],max_new_tokens=1024,num_beams=3, do_sample=False)
-        else:
-            generated_ids = model.generate(**inputs, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True, num_return_sequences=1) # temperature=0.01, do_sample=True,
+        with torch.nn.attention.sdpa_kernel([torch.nn.attention.SDPBackend.FLASH_ATTENTION, torch.nn.attention.SDPBackend.EFFICIENT_ATTENTION, torch.nn.attention.SDPBackend.MATH]):
+            if 'florence' in model.config.name_or_path:
+                generated_ids = model.generate(input_ids=inputs["input_ids"],pixel_values=inputs["pixel_values"],max_new_tokens=1024,num_beams=3, do_sample=False)
+            else:
+                generated_ids = model.generate(**inputs, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True, num_return_sequences=1) # temperature=0.01, do_sample=True,
         generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)
         generated_text = [gen.strip() for gen in generated_text]
         generated_texts.extend(generated_text)
@@ -369,14 +381,19 @@ def get_xywh_yolo(input):
     
 
 
-def check_ocr_box(image_path, display_img = True, output_bb_format='xywh', goal_filtering=None, easyocr_args=None):
-    if easyocr_args is None:
-        easyocr_args = {}
-    result = reader.readtext(image_path, **easyocr_args)
+def check_ocr_box(image_path, display_img = True, output_bb_format='xywh', goal_filtering=None, easyocr_args=None, use_paddleocr=True):
+    if use_paddleocr:
+        result = paddle_ocr.ocr(image_path, cls=True)[0]
+        coord = [item[0] for item in result]
+        text = [item[1][0] for item in result]
+    else:  # EasyOCR
+        if easyocr_args is None:
+            easyocr_args = {}
+        result = reader.readtext(image_path, **easyocr_args)
+        # print('goal filtering pred:', result[-5:])
+        coord = [item[0] for item in result]
+        text = [item[1] for item in result]
     is_goal_filtered = False
-    # print('goal filtering pred:', result[-5:])
-    coord = [item[0] for item in result]
-    text = [item[1] for item in result]
     # read the image using cv2
     if display_img:
         opencv_img = cv2.imread(image_path)
