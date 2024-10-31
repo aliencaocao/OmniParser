@@ -21,7 +21,7 @@ import easyocr
 from paddleocr import PaddleOCR
 reader = easyocr.Reader(['en'])
 paddle_ocr = PaddleOCR(
-    lang='ch',  # ch is actually eng and chinese bilingual model
+    lang='en',  # ch is actually eng and chinese bilingual model
     use_angle_cls=False,
     use_gpu=False,
     show_log=True,
