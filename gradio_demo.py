@@ -19,9 +19,9 @@ caption_model_processor = get_caption_model_processor(model_name="blip2", model_
 platform = 'pc'
 if platform == 'pc':
     draw_bbox_config = {
-        'text_scale': 0.8,
-        'text_thickness': 2,
-        'text_padding': 2,
+        'text_scale': 0.5,
+        'text_thickness': 1,
+        'text_padding': 3,
         'thickness': 2,
     }
 elif platform == 'web':
@@ -60,7 +60,8 @@ DEVICE = torch.device('cuda')
 def process(
     image_input,
     box_threshold,
-    iou_threshold
+    iou_threshold,
+    imgsz
 ) -> Optional[Image.Image]:
 
     image_save_path = 'imgs/saved_image_demo.png'
@@ -70,7 +71,7 @@ def process(
     ocr_bbox_rslt, is_goal_filtered = check_ocr_box(image_save_path, display_img = False, output_bb_format='xyxy', goal_filtering=None, easyocr_args={'paragraph': False, 'text_threshold':0.5}, use_paddleocr=use_paddleocr)
     text, ocr_bbox = ocr_bbox_rslt
     # print('prompt:', prompt)
-    dino_labled_img, label_coordinates, parsed_content_list = get_som_labeled_img(image_save_path, yolo_model, BOX_TRESHOLD = box_threshold, output_coord_in_ratio=True, ocr_bbox=ocr_bbox,draw_bbox_config=draw_bbox_config, caption_model_processor=caption_model_processor, ocr_text=text,iou_threshold=iou_threshold)
+    dino_labled_img, label_coordinates, parsed_content_list = get_som_labeled_img(image_save_path, yolo_model, BOX_TRESHOLD = box_threshold, output_coord_in_ratio=True, ocr_bbox=ocr_bbox,draw_bbox_config=draw_bbox_config, caption_model_processor=caption_model_processor, ocr_text=text,iou_threshold=iou_threshold, imgsz=imgsz)
     print('finish processing in:', time.perf_counter() - start, 'seconds')
     image = Image.open(io.BytesIO(base64.b64decode(dino_labled_img)))
     parsed_content_list = '\n'.join(parsed_content_list)
@@ -90,6 +91,8 @@ with gr.Blocks() as demo:
             # set the threshold for removing the bounding boxes with large overlap, default is 0.1
             iou_threshold_component = gr.Slider(
                 label='IOU Threshold', minimum=0.01, maximum=1.0, step=0.01, value=0.1)
+            imgsz_component = gr.Slider(
+                label='Image Size', minimum=640, maximum=1920, step=32, value=640)
             submit_button_component = gr.Button(
                 value='Submit', variant='primary')
         with gr.Column():
@@ -101,7 +104,8 @@ with gr.Blocks() as demo:
         inputs=[
             image_input_component,
             box_threshold_component,
-            iou_threshold_component
+            iou_threshold_component,
+            imgsz_component
         ],
         outputs=[image_output_component, text_output_component]
     )
